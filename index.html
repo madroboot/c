@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="./vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pueblo Duerme - Moderador Digital</title>
+    <meta name="description" content="Pueblo Duerme es un moderador digital para tu juego de mesa de deducción social. Configura y juega sin necesidad de que alguien se quede fuera." />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script type="importmap">
+      {
+        "imports": {
+          "react-dom/": "https://esm.sh/react-dom@^19.1.0/",
+          "react": "https://esm.sh/react@^19.1.0",
+          "react/": "https://esm.sh/react@^19.1.0/"
+        }
+      }
+    </script>
+    <style>
+      #landing-page { display: flex; }
+      #root { display: none; }
+    </style>
+  <link rel="stylesheet" href="/index.css">
+</head>
+  <body class="bg-gray-900 text-white font-sans">
+
+    <div id="landing-page" class="items-center justify-center min-h-screen">
+        <div class="text-center p-8 max-w-2xl mx-auto">
+            <h1 class="text-5xl md:text-6xl font-extrabold text-red-500 mb-4">Pueblo Duerme</h1>
+            <p class="text-xl md:text-2xl text-gray-300 mb-8">
+                El moderador digital para tus partidas de Mafia y roles ocultos.
+            </p>
+            <p class="text-lg text-gray-400 mb-12">
+                ¡Deja que la app se encargue de las reglas y el orden de los turnos para que todos puedan jugar! Configura tu partida, asigna roles y que comience la noche...
+            </p>
+            <button id="start-game-btn" class="bg-green-600 hover:bg-green-700 text-white font-bold py-4 px-8 rounded-lg text-xl transition-transform transform hover:scale-105 inline-block shadow-lg">
+                Comenzar a Jugar
+            </button>
+        </div>
+    </div>
+
+    <div id="root"></div>
+
+    <script>
+      document.getElementById('start-game-btn').addEventListener('click', () => {
+        document.getElementById('landing-page').style.display = 'none';
+        document.getElementById('root').style.display = 'block';
+      });
+    </script>
+    <script type="text/babel" data-type="module">
+      import React, { useState, useEffect } from 'react';
+      import ReactDOM from 'react-dom/client';
+
+      // --- Inlined Code from Project Files ---
+
+      // From types.ts
+      const Role = {
+        MAFIA: "Mafia",
+        VETERAN: "Veterano",
+        DOCTOR: "Médico",
+        JESTER: "Payaso",
+        VAMPIRE: "Vampiro",
+        VAMPIRE_JOVEN: "Vampiro Joven",
+        VAMPIRE_VIEJO: "Vampiro Viejo",
+        WITCH: "Bruja",
+        ESCORT: "Escort",
+        BODYGUARD: "Guardaespaldas",
+        SHERIFF: "Sheriff",
+        TOWNSPEOPLE: "Pueblo"
+      };
+      const PlayerStatus = {
+        ALIVE: "Vivo",
+        DEAD: "Muerto",
+      };
+      const GamePhase = {
+        SETUP: "SETUP",
+        NIGHT: "NIGHT",
+        DAY_ANNOUNCEMENT: "DAY_ANNOUNCEMENT",
+        DAY_VOTE: "DAY_VOTE",
+        GAME_OVER: "GAME_OVER",
+      };
+      const Faction = {
+        TOWN: "Pueblo",
+        MAFIA: "Mafia",
+        VAMPIRE: "Vampiros",
+        NEUTRAL: "Neutral"
+      };
+
+      // From constants.ts
+      const VAMPIRE_ROLES = [Role.VAMPIRE_JOVEN, Role.VAMPIRE_VIEJO, Role.VAMPIRE];
+      const ROLE_DETAILS = {
+        [Role.MAFIA]: { faction: Faction.MAFIA, hasGun: true, description: "Elige a quién eliminar." },
+        [Role.VETERAN]: { faction: Faction.TOWN, hasGun: true, description: "Ponte en alerta para protegerte y matar a tus visitantes." },
+        [Role.DOCTOR]: { faction: Faction.TOWN, description: "Elige a quién proteger de la muerte." },
+        [Role.JESTER]: { faction: Faction.NEUTRAL, description: "Tu objetivo es que te linchen. Si lo consigues, ganas y puedes matar a alguien." },
+        [Role.VAMPIRE]: { faction: Faction.VAMPIRE, hasGun: true, description: "Un vampiro recién convertido. Espera tu ascenso." },
+        [Role.VAMPIRE_VIEJO]: { faction: Faction.VAMPIRE, hasGun: true, description: "Junto a tu facción, alternas entre convertir y matar." },
+        [Role.VAMPIRE_JOVEN]: { faction: Faction.VAMPIRE, hasGun: true, description: "Junto a tu facción, alternas entre convertir y matar." },
+        [Role.WITCH]: { faction: Faction.NEUTRAL, description: "Puedes revivir a un jugador una vez por partida." },
+        [Role.ESCORT]: { faction: Faction.TOWN, description: "Elige a quién bloquear su habilidad esta noche." },
+        [Role.BODYGUARD]: { faction: Faction.TOWN, hasGun: true, description: "Elige a quién proteger. Mueres en su lugar si es atacado." },
+        [Role.SHERIFF]: { faction: Faction.TOWN, description: "Investiga si un jugador tiene 'arma'." },
+        [Role.TOWNSPEOPLE]: { faction: Faction.TOWN, description: "Descubre y elimina a las facciones enemigas." },
+      };
+      const NIGHT_ACTION_ORDER = [
+          Role.ESCORT, Role.VETERAN, Role.DOCTOR, Role.BODYGUARD, Role.SHERIFF,
+          Role.MAFIA, Role.VAMPIRE_VIEJO, Role.WITCH, Role.JESTER,
+      ];
+
+      // From services/gameLogic.ts
+      const shuffleArray = (array) => {
+        const newArray = [...array];
+        for (let i = newArray.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [newArray[i], newArray[j]] = [newArray[j], newArray[i]];
+        }
+        return newArray;
+      };
+
+      const assignRoles = (playerNames, roles) => {
+        const shuffledRoles = shuffleArray(roles);
+        const shuffledNames = shuffleArray(playerNames);
+        return shuffledNames.map((name, index) => {
+          const role = shuffledRoles[index] || Role.TOWNSPEOPLE;
+          const details = ROLE_DETAILS[role];
+          let abilityUses = {};
+          if (role === Role.VETERAN) abilityUses = { alerts: 3 };
+          if (role === Role.DOCTOR) abilityUses = { selfHeals: 2 };
+          if (role === Role.BODYGUARD) abilityUses = { selfGuards: 2 };
+          if (role === Role.WITCH) abilityUses = { revive: 1 };
+          return {
+            id: crypto.randomUUID(), name, role, status: PlayerStatus.ALIVE,
+            faction: details.faction, isProtected: false, isBlocked: false,
+            isAlerting: false, markedForLynch: false, abilityUses,
+            hasGun: details.hasGun || false, canBeRevived: false, convertedOnDay: null,
+          };
+        });
+      };
+
+      const processPlayerDeaths = (deadPlayerIds, players) => {
+        if (deadPlayerIds.size === 0) return { updatedPlayers: [...players], promotionAnnouncements: [] };
+        let updatedPlayers = JSON.parse(JSON.stringify(players));
+        let promotionAnnouncements = [];
+        updatedPlayers.forEach(p => {
+          if (deadPlayerIds.has(p.id)) { p.status = PlayerStatus.DEAD; p.canBeRevived = true; }
+        });
+        const deadVampireLeaders = players.filter(p => deadPlayerIds.has(p.id) && (p.role === Role.VAMPIRE_VIEJO || p.role === Role.VAMPIRE_JOVEN));
+        if (deadVampireLeaders.length > 0) {
+          const livingConvertedVampires = updatedPlayers.filter(p => p.role === Role.VAMPIRE && p.status === PlayerStatus.ALIVE)
+            .sort((a, b) => {
+              if (a.convertedOnDay !== null && b.convertedOnDay !== null) {
+                if (a.convertedOnDay !== b.convertedOnDay) return a.convertedOnDay - b.convertedOnDay;
+              }
+              return a.name.localeCompare(b.name);
+            });
+          for (const deadLeader of deadVampireLeaders) {
+            const promotedVampire = livingConvertedVampires.shift();
+            if (promotedVampire) {
+              const pIndex = updatedPlayers.findIndex(p => p.id === promotedVampire.id);
+              if (pIndex !== -1) {
+                updatedPlayers[pIndex].role = deadLeader.role;
+                updatedPlayers[pIndex].convertedOnDay = null;
+                promotionAnnouncements.push(`${promotedVampire.name} has inherited the title of ${deadLeader.role}!`);
+              }
+            }
+          }
+        }
+        return { updatedPlayers, promotionAnnouncements };
+      };
+
+      const resolveNightActions = (initialActions, players, vampireAction, jesterKillTargetId, dayNumber) => {
+        let updatedPlayers = JSON.parse(JSON.stringify(players));
+        const getPlayer = (id) => updatedPlayers.find(p => p.id === id);
+        const previouslyRevivableIds = new Set(updatedPlayers.filter(p => p.canBeRevived && p.status === PlayerStatus.DEAD).map(p => p.id));
+        let deaths = [];
+        let announcements = [];
+        updatedPlayers.forEach(p => {
+          p.isBlocked = false; p.isProtected = false; p.isAlerting = false; p.canBeRevived = false;
+        });
+        let actions = [...initialActions];
+        actions.filter(a => a.type === 'BLOCK').forEach(action => {
+          const target = getPlayer(action.targetId);
+          if (target) target.isBlocked = true;
+        });
+        const guardMap = new Map();
+        actions.filter(a => a.type === 'GUARD').forEach(guardAction => {
+          const bodyguard = getPlayer(guardAction.actorId);
+          if (bodyguard && !bodyguard.isBlocked && guardAction.targetId && guardAction.actorId !== guardAction.targetId) {
+            guardMap.set(guardAction.targetId, guardAction.actorId);
+          }
+        });
+        actions.forEach(action => {
+          if (action.targetId && guardMap.has(action.targetId)) action.targetId = guardMap.get(action.targetId);
+        });
+        actions.filter(a => a.type === 'ALERT').forEach(action => {
+          const veteran = getPlayer(action.actorId);
+          if (veteran && !veteran.isBlocked) veteran.isAlerting = true;
+        });
+        actions.filter(a => a.type === 'PROTECT').forEach(action => {
+          const doctor = getPlayer(action.actorId);
+          const target = getPlayer(action.targetId);
+          if (doctor && !doctor.isBlocked && target) target.isProtected = true;
+        });
+        actions.filter(a => a.type === 'GUARD').forEach(action => {
+          const bodyguard = getPlayer(action.actorId);
+          if (bodyguard && !bodyguard.isBlocked && action.targetId === action.actorId) bodyguard.isProtected = true;
+        });
+        const reviveAction = actions.find(a => a.type === 'REVIVE');
+        if (reviveAction) {
+          const actor = getPlayer(reviveAction.actorId);
+          const target = getPlayer(reviveAction.targetId);
+          if (actor && !actor.isBlocked && target && previouslyRevivableIds.has(target.id)) {
+            target.status = PlayerStatus.ALIVE;
+            announcements.push(`${target.name} was brought back from the dead!`);
+          }
+        }
+        const addDeath = (player, cause) => {
+          if (!deaths.some(d => d.player.id === player.id)) deaths.push({ player, cause });
+        };
+        if (jesterKillTargetId) {
+          const jesterTarget = getPlayer(jesterKillTargetId);
+          if (jesterTarget) addDeath(jesterTarget, 'cursed by a vengeful Jester');
+        }
+        const veteranOnAlert = updatedPlayers.find(p => p.isAlerting);
+        if (veteranOnAlert) {
+          actions.forEach(action => {
+            if (action.targetId === veteranOnAlert.id && action.actorId !== veteranOnAlert.id) {
+              const visitor = getPlayer(action.actorId);
+              if (visitor && !visitor.isBlocked) addDeath(visitor, 'visited a Veteran on alert');
+            }
+          });
+        }
+        actions.filter(a => a.type === 'KILL').forEach(action => {
+          const actor = getPlayer(action.actorId);
+          const target = getPlayer(action.targetId);
+          if (actor && actor.isBlocked) return;
+          if (!target || deaths.some(d => d.player.id === target.id) || target.status === PlayerStatus.DEAD) return;
+          if (target.isAlerting || target.isProtected) return;
+          const cause = `killed by the ${VAMPIRE_ROLES.includes(action.role) ? 'Vampires' : action.role}`;
+          addDeath(target, cause);
+        });
+        if (vampireAction === 'CONVERT') {
+          const convertAction = actions.find(a => VAMPIRE_ROLES.includes(a.role) && a.type === 'CONVERT');
+          if (convertAction) {
+            const actor = getPlayer(convertAction.actorId);
+            const target = getPlayer(convertAction.targetId);
+            const targetIsDying = deaths.some(d => d.player.id === target?.id);
+            const canBeConverted = target && (target.faction === Faction.TOWN || target.faction === Faction.NEUTRAL);
+            if (canBeConverted && actor && !actor.isBlocked && !target.isProtected && !target.isAlerting && !targetIsDying) {
+              target.role = Role.VAMPIRE;
+              target.faction = Faction.VAMPIRE;
+              target.convertedOnDay = dayNumber;
+              announcements.push(`${target.name} was turned into a Vampire!`);
+            }
+          }
+        }
+        const deadPlayerIdsThisNight = new Set(deaths.map(d => d.player.id));
+        const { updatedPlayers: playersAfterDeaths, promotionAnnouncements } = processPlayerDeaths(deadPlayerIdsThisNight, updatedPlayers);
+        updatedPlayers = playersAfterDeaths;
+        announcements.push(...promotionAnnouncements);
+        let nightReport = (deaths.length > 0) ? `Anoche murieron: ${deaths.map(d => `${d.player.name} (${d.player.role})`).join(', ')}.` : 'Nadie murió anoche.';
+        announcements.push(nightReport);
+        const finalAnnouncement = announcements.filter(Boolean).join(' ');
+        return { updatedPlayers, announcement: finalAnnouncement };
+      };
+
+      const checkWinConditions = (players) => {
+        const alivePlayers = players.filter(p => p.status === PlayerStatus.ALIVE);
+        const totalAlive = alivePlayers.length;
+        if (totalAlive === 0) return { winner: "Nadie", message: "Todos han muerto. No hay ganadores." };
+        const mafiaCount = alivePlayers.filter(p => p.faction === Faction.MAFIA).length;
+        const vampireCount = alivePlayers.filter(p => p.faction === Faction.VAMPIRE).length;
+        const townCount = alivePlayers.filter(p => p.faction === Faction.TOWN).length;
+        if (mafiaCount > 0 && mafiaCount >= totalAlive / 2) return { winner: "Mafia", message: "La Mafia ha igualado o superado en número al resto y toma el control." };
+        if (vampireCount > 0 && vampireCount > totalAlive / 2) return { winner: "Vampiros", message: "Los Vampiros son mayoría y dominan la noche." };
+        if (vampireCount > 0 && totalAlive > 0 && vampireCount === totalAlive / 2) {
+          const hasMafiaThreat = mafiaCount > 0;
+          const hasVeteranThreat = alivePlayers.some(p => p.role === Role.VETERAN && p.abilityUses.alerts > 0);
+          if (!hasMafiaThreat && !hasVeteranThreat) return { winner: "Vampiros", message: "Los Vampiros han alcanzado la mitad del pueblo sin amenazas restantes y dominan." };
+        }
+        if (mafiaCount === 0 && vampireCount === 0 && townCount > 0) return { winner: "Pueblo", message: "Todas las amenazas han sido eliminadas. ¡El pueblo gana!" };
+        return null;
+      };
+
+      // From components/icons.tsx
+      const TrashIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>);
+      const EyeOpenIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>);
+      const EyeClosedIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a10.05 10.05 0 011.9-4.175M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c1.134 0 2.22.185 3.233.522M21.542 12c-1.274 4.057-5.064 7-9.542 7a10.052 10.052 0 01-3.233-.522m13.875-5.652L2.091 2.091" /></svg>);
+
+      // From components/PlayerCircle.tsx
+      const PlayerCircle = ({ player, position, isActive, isSelectedTarget, onSelect, isTargetable, showRole }) => {
+        const isDead = player.status === PlayerStatus.DEAD;
+        const getStatusColor = () => {
+          if (isDead) return 'bg-red-800 border-red-600';
+          if (isActive) return 'bg-yellow-500 border-yellow-300 animate-pulse';
+          return 'bg-green-700 border-green-500';
+        };
+        const baseClasses = 'absolute flex flex-col items-center justify-center transition-all duration-500 transform -translate-x-1/2 -translate-y-1/2';
+        const deadClasses = isDead ? 'opacity-40 filter grayscale' : 'opacity-100';
+        const targetableClasses = isTargetable ? 'cursor-pointer hover:scale-110' : 'cursor-default';
+        return (
+          <div style={position} className={`${baseClasses} ${deadClasses} ${targetableClasses}`} onClick={() => isTargetable && onSelect(player.id)}>
+            <div className={`w-16 h-16 rounded-full flex items-center justify-center border-4 ${getStatusColor()} ${isSelectedTarget ? 'ring-4 ring-offset-4 ring-offset-gray-900 ring-cyan-400' : ''} transition-all`}></div>
+            <div className="mt-2 text-center">
+              <span className="font-bold text-sm bg-gray-900/70 px-2 py-1 rounded">{player.name}</span>
+              {showRole && (<span className="block text-xs text-red-400 font-semibold mt-1">{player.role}</span>)}
+            </div>
+          </div>
+        );
+      };
+
+      // From components/CentralInfoPanel.tsx
+      const CentralInfoPanel = ({ phase, activePlayer, dayNumber, announcement, onVoteDecision, onConfirmLynch, onEndDay, vampireAction, sheriffResult, witchCanRevive, jesterWasLynched, onConfirmNightAction, onSkipNightAction, isTargetSelected }) => {
+        const renderContent = () => {
+          switch (phase) {
+            case GamePhase.NIGHT:
+              if (activePlayer) {
+                const roleDetails = ROLE_DETAILS[activePlayer.role];
+                let actionText = roleDetails.description;
+                if(VAMPIRE_ROLES.includes(activePlayer.role)) actionText = vampireAction === 'KILL' ? "Elige a quién matar." : "Elige a quién convertir.";
+                if(activePlayer.role === Role.JESTER && jesterWasLynched) actionText = "Has sido linchado. Elige a quién matar esta noche.";
+                return (
+                  <div className="text-center flex flex-col justify-center items-center h-full">
+                    <div className="flex-grow flex flex-col justify-center items-center">
+                      <h2 className="text-2xl font-bold text-yellow-400">Turno de {activePlayer.name}</h2>
+                      <p className="text-4xl font-extrabold my-2">{activePlayer.role}</p>
+                      <p className="text-lg text-gray-300 mb-3">{actionText}</p>
+                      {activePlayer.role === Role.VETERAN && <p>Alertas restantes: <span className="font-bold text-xl">{activePlayer.abilityUses.alerts}</span></p>}
+                      {activePlayer.role === Role.DOCTOR && <p>Autocuraciones restantes: <span className="font-bold text-xl">{activePlayer.abilityUses.selfHeals}</span></p>}
+                      {activePlayer.role === Role.BODYGUARD && <p>Autoprotecciones restantes: <span className="font-bold text-xl">{activePlayer.abilityUses.selfGuards}</span></p>}
+                      {activePlayer.role === Role.SHERIFF && sheriffResult && <p className="mt-2 text-2xl text-cyan-400 animate-pulse">{sheriffResult}</p>}
+                    </div>
+                    <div className="w-full">
+                      {activePlayer.role === Role.VETERAN ? (
+                        <div className="flex flex-col gap-2 items-center">
+                          <button onClick={onConfirmNightAction} disabled={activePlayer.abilityUses.alerts <= 0} className="bg-yellow-600 hover:bg-yellow-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg text-lg transition-transform transform hover:scale-105">Ponerse en Alerta</button>
+                          <button onClick={onSkipNightAction} className="bg-gray-500 hover:bg-gray-400 text-white font-bold py-2 px-4 rounded-lg">No hacer nada</button>
+                        </div>
+                      ) : activePlayer.role === Role.WITCH ? (
+                        <div className="flex flex-col gap-2 items-center">
+                          <p className="mb-2">Pociones restantes: <span className="font-bold text-xl">{activePlayer.abilityUses.revive}</span></p>
+                          <button onClick={onConfirmNightAction} disabled={activePlayer.abilityUses.revive <= 0 || !witchCanRevive || !isTargetSelected} className="bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg text-lg">Revivir Jugador</button>
+                          <button onClick={onSkipNightAction} className="bg-gray-500 hover:bg-gray-400 text-white font-bold py-2 px-4 rounded-lg mt-2">No hacer nada</button>
+                        </div>
+                      ) : onConfirmNightAction ? (
+                        <button onClick={onConfirmNightAction} disabled={!isTargetSelected} className="mt-4 bg-cyan-600 hover:bg-cyan-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg text-lg transition-transform transform hover:scale-105">Confirmar Acción</button>
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              }
+              return null;
+            case GamePhase.DAY_ANNOUNCEMENT:
+              return (
+                <div className="text-center">
+                  <h2 className="text-3xl font-bold mb-4">Amanecer - Día {dayNumber}</h2>
+                  <p className="text-xl text-gray-300 mb-6">{announcement}</p>
+                  <button onClick={() => onVoteDecision(true)} className="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-lg text-lg transition-transform transform hover:scale-105">Ir a Votación</button>
+                </div>
+              );
+            case GamePhase.DAY_VOTE:
+              return (
+                  <div className="text-center">
+                      <h2 className="text-3xl font-bold mb-4">Votación</h2>
+                      <p className="text-xl text-gray-300 mb-6">Selecciona un jugador para linchar o termina el día.</p>
+                      <div className="flex justify-center gap-4">
+                           <button onClick={onConfirmLynch} className="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-lg text-lg transition-transform transform hover:scale-105">Confirmar Linchamiento</button>
+                           <button onClick={onEndDay} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg text-lg transition-transform transform hover:scale-105">Terminar Día</button>
+                      </div>
+                  </div>
+              );
+            case GamePhase.GAME_OVER:
+              return (
+                <div className="text-center">
+                  <h2 className="text-5xl font-bold text-yellow-500 mb-4">¡Partida Terminada!</h2>
+                  <p className="text-2xl text-gray-200">{announcement}</p>
+                </div>
+              );
+            default: return null;
+          }
+        };
+        return (
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-2/3 h-2/3 max-w-xs max-h-xs bg-black/60 backdrop-blur-md rounded-full flex items-center justify-center p-6 border-4 border-gray-700">
+            <div className="w-full h-full flex items-center justify-center">{renderContent()}</div>
+          </div>
+        );
+      };
+
+      // From components/GameScreen.tsx
+      const GameScreen = ({ players, phase, activePlayerId, selectedTargetId, dayNumber, announcement, onPlayerSelect, onVoteDecision, onConfirmLynch, onConfirmNightAction, onSkipNightAction, onGoToHome, onEndDay, vampireAction, sheriffResult, jesterWasLynched }) => {
+        const [showRoles, setShowRoles] = useState(true);
+        const containerSize = 450;
+        const radius = containerSize * 0.8;
+        const numPlayers = players.length;
+        const activePlayer = players.find(p => p.id === activePlayerId) || null;
+        const isTargetingPhase = phase === GamePhase.NIGHT || phase === GamePhase.DAY_VOTE;
+        const getTargetablePlayers = () => {
+          if(!activePlayer) return players.map(p => p.id);
+          if (activePlayer.role === Role.WITCH) return players.filter(p => p.status === PlayerStatus.DEAD && p.canBeRevived).map(p => p.id);
+          if (activePlayer.role === Role.JESTER && jesterWasLynched) return players.filter(p => p.status === PlayerStatus.ALIVE).map(p => p.id);
+          return players.filter(p => p.status === PlayerStatus.ALIVE).map(p => p.id);
+        }
+        const targetablePlayerIds = new Set(getTargetablePlayers());
+        const witchCanRevive = activePlayer?.role === Role.WITCH && players.some(p => p.status === PlayerStatus.DEAD && p.canBeRevived);
+        return (
+          <div className="w-screen h-screen flex items-center justify-center bg-gray-900 overflow-hidden relative">
+              <div className="absolute top-4 left-4 flex items-center gap-4 z-10">
+                  <button onClick={onGoToHome} className="bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg transition-colors">Volver al Inicio</button>
+                  <button onClick={() => setShowRoles(prev => !prev)} className="bg-gray-700 hover:bg-gray-600 text-white p-2 rounded-lg transition-colors" aria-label={showRoles ? 'Ocultar roles' : 'Mostrar roles'}>
+                      {showRoles ? <EyeOpenIcon /> : <EyeClosedIcon />}
+                  </button>
+              </div>
+              <div className="relative" style={{ width: `${containerSize * 2}px`, height: `${containerSize * 2}px` }}>
+                  {players.map((player, index) => {
+                    const angle = (index / numPlayers) * 2 * Math.PI - Math.PI / 2;
+                    const x = containerSize + radius * Math.cos(angle);
+                    const y = containerSize + radius * Math.sin(angle);
+                    return (<PlayerCircle key={player.id} player={player} position={{ top: `${y}px`, left: `${x}px` }} isActive={player.id === activePlayerId} isSelectedTarget={player.id === selectedTargetId} onSelect={onPlayerSelect} isTargetable={isTargetingPhase && targetablePlayerIds.has(player.id)} showRole={showRoles} />);
+                  })}
+                  <CentralInfoPanel phase={phase} activePlayer={activePlayer} dayNumber={dayNumber} announcement={announcement} onVoteDecision={onVoteDecision} onConfirmLynch={onConfirmLynch} onConfirmNightAction={onConfirmNightAction} onSkipNightAction={onSkipNightAction} isTargetSelected={selectedTargetId !== null} onEndDay={onEndDay} vampireAction={vampireAction} sheriffResult={sheriffResult} witchCanRevive={witchCanRevive} jesterWasLynched={jesterWasLynched} />
+              </div>
+          </div>
+        );
+      };
+      
+      // From components/RoleSelectionScreen.tsx
+      const RoleSelectionScreen = ({ playerCount, onStartGame, onBack, selectedRoles, onRolesChange }) => {
+        const handleRoleToggle = (role) => {
+          const newSelection = new Set(selectedRoles);
+          if (newSelection.has(role)) newSelection.delete(role);
+          else newSelection.add(role);
+          onRolesChange(newSelection);
+        };
+        const isReady = selectedRoles.size === playerCount;
+        const allRoles = Object.values(Role).filter(role => role !== Role.TOWNSPEOPLE && role !== Role.VAMPIRE);
+        return (
+          <div className="min-h-screen bg-gray-900 text-white flex flex-col items-center justify-center p-4">
+            <div className="w-full max-w-2xl bg-gray-800 rounded-lg shadow-xl p-8">
+              <h1 className="text-4xl font-bold text-center text-red-500 mb-2">Seleccionar Roles</h1>
+              <p className="text-center text-gray-400 mb-6">Elige exactamente <span className="font-bold text-white">{playerCount}</span> roles para la partida.</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-96 overflow-y-auto pr-2 mb-6">
+                {allRoles.map(role => (
+                  <div key={role} className={`p-4 rounded-lg border-2 transition-colors ${selectedRoles.has(role) ? 'bg-red-900/50 border-red-500' : 'bg-gray-700/50 border-gray-600'}`}>
+                    <label className="flex items-center space-x-4 cursor-pointer">
+                      <input type="checkbox" checked={selectedRoles.has(role)} onChange={() => handleRoleToggle(role)} className="w-6 h-6 text-red-600 bg-gray-700 border-gray-600 rounded focus:ring-red-500 focus:ring-2" />
+                      <div className="flex-grow">
+                        <p className="font-bold text-lg">{role}</p>
+                        <p className="text-sm text-gray-400">{ROLE_DETAILS[role].description}</p>
+                      </div>
+                    </label>
+                  </div>
+                ))}
+              </div>
+              <div className="flex items-center justify-between">
+                  <button onClick={onBack} className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-6 rounded-lg transition-colors">Volver</button>
+                  <div className="text-center text-lg">Seleccionados: <span className={`font-bold ${isReady ? 'text-green-400' : 'text-yellow-400'}`}>{selectedRoles.size} / {playerCount}</span></div>
+                  <button onClick={() => onStartGame(Array.from(selectedRoles))} disabled={!isReady} className="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg disabled:bg-gray-500 disabled:cursor-not-allowed transition-transform transform hover:scale-105">Iniciar Partida</button>
+              </div>
+            </div>
+          </div>
+        );
+      };
+      
+      // From components/SetupScreen.tsx
+      const SetupScreen = ({ onContinue, initialPlayers }) => {
+        const [players, setPlayers] = useState(initialPlayers);
+        const [playerName, setPlayerName] = useState('');
+        const handleAddPlayer = () => {
+          if (playerName.trim() && players.length < 10) {
+            setPlayers([...players, playerName.trim()]);
+            setPlayerName('');
+          }
+        };
+        const handleRemovePlayer = (index) => setPlayers(players.filter((_, i) => i !== index));
+        const handleKeyDown = (e) => { if (e.key === 'Enter') handleAddPlayer(); };
+        const isGameStartable = players.length >= 1 && players.length <= 10;
+        return (
+          <div className="min-h-screen bg-gray-900 text-white flex flex-col items-center justify-center p-4">
+            <div className="w-full max-w-md bg-gray-800 rounded-lg shadow-xl p-8">
+              <h1 className="text-4xl font-bold text-center text-red-500 mb-6">Pueblo Duerme</h1>
+              <p className="text-center text-gray-400 mb-8">Añade de 1 a 10 jugadores para comenzar la partida.</p>
+              <div className="flex gap-2 mb-4">
+                <input type="text" value={playerName} onChange={(e) => setPlayerName(e.target.value)} onKeyDown={handleKeyDown} placeholder="Nombre del jugador" className="flex-grow bg-gray-700 border-2 border-gray-600 rounded-lg px-4 py-2 focus:outline-none focus:border-red-500 transition-colors" />
+                <button onClick={handleAddPlayer} disabled={!playerName.trim() || players.length >= 10} className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg disabled:bg-gray-500 disabled:cursor-not-allowed transition-colors">Añadir</button>
+              </div>
+              <div className="space-y-2 mb-8 h-48 overflow-y-auto pr-2">
+                {players.map((player, index) => (
+                  <div key={index} className="flex justify-between items-center bg-gray-700 p-3 rounded-lg animate-fade-in">
+                    <span className="font-semibold">{index + 1}. {player}</span>
+                    <button onClick={() => handleRemovePlayer(index)} className="text-gray-400 hover:text-white transition-colors"><TrashIcon /></button>
+                  </div>
+                ))}
+              </div>
+              <button onClick={() => onContinue(players)} disabled={!isGameStartable} className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg disabled:bg-gray-500 disabled:cursor-not-allowed transition-transform transform hover:scale-105">Seleccionar Roles ({players.length})</button>
+            </div>
+          </div>
+        );
+      };
+
+      // From App.tsx
+      const App = () => {
+          const [screen, setScreen] = useState('setup');
+          const [phase, setPhase] = useState(GamePhase.SETUP);
+          const [players, setPlayers] = useState([]);
+          const [pendingPlayers, setPendingPlayers] = useState([]);
+          const [selectedRoles, setSelectedRoles] = useState(new Set());
+          const [dayNumber, setDayNumber] = useState(1);
+          const [activePlayerId, setActivePlayerId] = useState(null);
+          const [selectedTargetId, setSelectedTargetId] = useState(null);
+          const [nightActions, setNightActions] = useState([]);
+          const [nightRoleIndex, setNightRoleIndex] = useState(-1);
+          const [announcement, setAnnouncement] = useState('');
+          const [vampireAction, setVampireAction] = useState('CONVERT');
+          const [sheriffResult, setSheriffResult] = useState(null);
+          const [jesterWasLynched, setJesterWasLynched] = useState(false);
+          const [jesterKillTargetId, setJesterKillTargetId] = useState(null);
+
+          const handleGoToRoleSelect = (playerNames) => { setPendingPlayers(playerNames); setScreen('roles'); };
+          const handleStartGame = (roles) => {
+              const newPlayers = assignRoles(pendingPlayers, roles);
+              setPlayers(newPlayers); setScreen('game'); setPhase(GamePhase.NIGHT); setNightRoleIndex(0);
+          };
+          const handleBackToSetup = () => setScreen('setup');
+
+          useEffect(() => {
+              if (phase !== GamePhase.NIGHT || nightRoleIndex === -1) return;
+              setSheriffResult(null); setSelectedTargetId(null);
+              const activeRolesInGame = new Set(players.filter(p => p.status === PlayerStatus.ALIVE).map(p => p.role));
+              let foundNextPlayer = false;
+              for (let i = nightRoleIndex; i < NIGHT_ACTION_ORDER.length; i++) {
+                  const role = NIGHT_ACTION_ORDER[i];
+                  if (role === Role.JESTER && jesterWasLynched) {
+                       const jester = players.find(p => p.role === Role.JESTER);
+                       if (jester) { setNightRoleIndex(i); setActivePlayerId(jester.id); foundNextPlayer = true; break; }
+                  } else if (role === Role.WITCH) {
+                       const witch = players.find(p => p.role === Role.WITCH && p.status === PlayerStatus.ALIVE);
+                       const canWitchAct = witch && witch.abilityUses.revive > 0 && players.some(p => p.status === PlayerStatus.DEAD && p.canBeRevived);
+                       if(canWitchAct) { setNightRoleIndex(i); setActivePlayerId(witch.id); foundNextPlayer = true; break; }
+                  } else if (role === Role.VAMPIRE_VIEJO) {
+                      let responsibleVampire = vampireAction === 'KILL' ? players.find(p => p.role === Role.VAMPIRE_VIEJO && p.status === PlayerStatus.ALIVE) : players.find(p => p.role === Role.VAMPIRE_JOVEN && p.status === PlayerStatus.ALIVE);
+                      if (responsibleVampire) { setNightRoleIndex(i); setActivePlayerId(responsibleVampire.id); foundNextPlayer = true; break; }
+                  } else if (activeRolesInGame.has(role)) {
+                      const potentialPlayers = players.filter(p => p.role === role && p.status === PlayerStatus.ALIVE);
+                      if (potentialPlayers.length > 0) { setNightRoleIndex(i); setActivePlayerId(potentialPlayers[0].id); foundNextPlayer = true; break; }
+                  }
+              }
+              if (!foundNextPlayer) {
+                  setActivePlayerId(null);
+                  const { updatedPlayers, announcement: nightAnnouncement } = resolveNightActions(nightActions, players, vampireAction, jesterKillTargetId, dayNumber);
+                  setPlayers(updatedPlayers); setAnnouncement(nightAnnouncement);
+                  setJesterWasLynched(false); setJesterKillTargetId(null);
+                  const winCheck = checkWinConditions(updatedPlayers);
+                  if(winCheck) { setAnnouncement(`${winCheck.message} ¡Gana ${winCheck.winner}!`); setPhase(GamePhase.GAME_OVER); }
+                  else { setPhase(GamePhase.DAY_ANNOUNCEMENT); }
+              }
+          }, [nightRoleIndex, phase, players, jesterWasLynched, vampireAction, nightActions, jesterKillTargetId, dayNumber]);
+
+          const handlePlayerSelect = (targetId) => {
+              setSelectedTargetId(targetId);
+              const actor = players.find(p => p.id === activePlayerId);
+              if (!actor) return;
+              if (actor.role === Role.SHERIFF) {
+                  const target = players.find(p => p.id === targetId);
+                  setSheriffResult(target?.hasGun ? `${target.name} TIENE arma.` : `${target.name} NO tiene arma.`);
+              }
+          };
+
+          const handleConfirmNightAction = () => {
+              const actor = players.find(p => p.id === activePlayerId);
+              if (!actor) return;
+              let actionType = null, requiresTarget = true;
+              switch(actor.role) {
+                  case Role.MAFIA: actionType = 'KILL'; break;
+                  case Role.VAMPIRE_JOVEN: case Role.VAMPIRE_VIEJO: actionType = vampireAction === 'KILL' ? 'KILL' : 'CONVERT'; break;
+                  case Role.DOCTOR: actionType = 'PROTECT'; break;
+                  case Role.BODYGUARD: actionType = 'GUARD'; break;
+                  case Role.ESCORT: actionType = 'BLOCK'; break;
+                  case Role.SHERIFF: actionType = 'INVESTIGATE'; break;
+                  case Role.VETERAN: actionType = 'ALERT'; requiresTarget = false; break;
+                  case Role.WITCH: actionType = 'REVIVE'; break;
+                  case Role.JESTER: if(jesterWasLynched) actionType = 'KILL'; break;
+              }
+              if(requiresTarget && !selectedTargetId) return;
+              if(actionType) {
+                  const currentTargetId = (actor.role === Role.VETERAN || !requiresTarget) ? actor.id : selectedTargetId;
+                  if (actor.role === Role.JESTER && jesterWasLynched) setJesterKillTargetId(currentTargetId);
+                  else setNightActions(prev => [...prev, { actorId: actor.id, targetId: currentTargetId, role: actor.role, type: actionType}]);
+                  const newPlayers = [...players];
+                  const pIndex = newPlayers.findIndex(p => p.id === actor.id);
+                  if(pIndex !== -1) {
+                      if(actor.role === Role.VETERAN && newPlayers[pIndex].abilityUses.alerts > 0) newPlayers[pIndex].abilityUses.alerts--;
+                      if(actor.role === Role.DOCTOR && actor.id === currentTargetId && newPlayers[pIndex].abilityUses.selfHeals > 0) newPlayers[pIndex].abilityUses.selfHeals--;
+                      if(actor.role === Role.BODYGUARD && actor.id === currentTargetId && newPlayers[pIndex].abilityUses.selfGuards > 0) newPlayers[pIndex].abilityUses.selfGuards--;
+                      if(actor.role === Role.WITCH && newPlayers[pIndex].abilityUses.revive > 0) newPlayers[pIndex].abilityUses.revive--;
+                      setPlayers(newPlayers);
+                  }
+              }
+              setNightRoleIndex(i => i + 1);
+          };
+
+          const handleSkipNightAction = () => setNightRoleIndex(i => i + 1);
+          const handleGoToHome = () => window.location.reload();
+          const handleVoteDecision = (decision) => {
+              if(decision) { setPhase(GamePhase.DAY_VOTE); setSelectedTargetId(null); }
+              else handleEndDay();
+          };
+          const handleLynch = () => {
+              if (!selectedTargetId) return;
+              const lynchTarget = players.find(p => p.id === selectedTargetId);
+              if (!lynchTarget) return;
+              let finalAnnouncement = `${lynchTarget.name} (${lynchTarget.role}) ha sido linchado por el pueblo.`;
+              if (lynchTarget.role === Role.JESTER) {
+                  setJesterWasLynched(true);
+                  finalAnnouncement += ` ¡Ha cumplido su objetivo!`;
+                  setAnnouncement(finalAnnouncement);
+                  const updatedPlayers = players.map(p => p.id === selectedTargetId ? { ...p, status: PlayerStatus.DEAD, canBeRevived: true } : p);
+                  setPlayers(updatedPlayers);
+                  setTimeout(handleEndDay, 3000); 
+                  return;
+              }
+              const { updatedPlayers, promotionAnnouncements } = processPlayerDeaths(new Set([selectedTargetId]), players);
+              if(promotionAnnouncements.length > 0) finalAnnouncement += ` ${promotionAnnouncements.join(' ')}`;
+              setPlayers(updatedPlayers);
+              const winCheck = checkWinConditions(updatedPlayers);
+              if (winCheck) {
+                  setAnnouncement(`${finalAnnouncement} ${winCheck.message} ¡Gana ${winCheck.winner}!`);
+                  setPhase(GamePhase.GAME_OVER);
+              } else {
+                  setAnnouncement(finalAnnouncement);
+                  setTimeout(handleEndDay, 3000);
+              }
+          };
+          const handleEndDay = () => {
+              setDayNumber(d => d + 1); setPhase(GamePhase.NIGHT); setNightActions([]);
+              setActivePlayerId(null); setSelectedTargetId(null); setSheriffResult(null);
+              setVampireAction(prev => prev === 'KILL' ? 'CONVERT' : 'KILL');
+              setNightRoleIndex(0);
+          };
+
+          if (screen === 'setup') return <SetupScreen onContinue={handleGoToRoleSelect} initialPlayers={pendingPlayers} />;
+          if (screen === 'roles') return <RoleSelectionScreen playerCount={pendingPlayers.length} onStartGame={handleStartGame} onBack={handleBackToSetup} selectedRoles={selectedRoles} onRolesChange={setSelectedRoles} />;
+          return (<GameScreen players={players} phase={phase} activePlayerId={activePlayerId} selectedTargetId={selectedTargetId} dayNumber={dayNumber} announcement={announcement} onPlayerSelect={phase === GamePhase.DAY_VOTE ? setSelectedTargetId : handlePlayerSelect} onVoteDecision={handleVoteDecision} onConfirmLynch={handleLynch} onConfirmNightAction={handleConfirmNightAction} onSkipNightAction={handleSkipNightAction} onGoToHome={handleGoToHome} onEndDay={handleEndDay} vampireAction={vampireAction} sheriffResult={sheriffResult} jesterWasLynched={jesterWasLynched} />);
+      };
+
+      // From index.tsx
+      const rootElement = document.getElementById('root');
+      if (!rootElement) {
+        throw new Error("Could not find root element to mount to");
+      }
+      const root = ReactDOM.createRoot(rootElement);
+      root.render(<React.StrictMode><App /></React.StrictMode>);
+
+    </script>
+  <script type="module" src="/index.tsx"></script>
+</body>
+</html>

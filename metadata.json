@@ -1,0 +1,6 @@
+
+{
+  "name": "Pueblo Duerme",
+  "description": "Un moderador digital para el juego de mesa de roles ocultos Pueblo Duerme. La app gestiona la partida completa, permitiendo que todos puedan jugar.",
+  "requestFramePermissions": []
+}
